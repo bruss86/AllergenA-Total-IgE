@@ -1,63 +1,237 @@
 /**
  * ============================================================
- * UTILIDADES PARA EL CÁLCULO DE IgE
+ * CALCULO DE IgE ESPECÍFICA
+ * ALLERGENA BASIC KIT - REF. RA1000
  * ============================================================
  *
- * MODELO DE CÁLCULO:
- *   Interpolación lineal entre calibradores (punto a punto)
+ * RA1000:
  *
- * La regresión lineal se conserva como indicador de ajuste (R²)
- * y para el gráfico, pero NO se usa para convertir la DO de
- * una muestra en concentración.
+ * CURVA ESTÁNDAR 1
+ *   CAL 0 - CAL 3
+ *   Longitud de onda: 450 nm
+ *
+ * CURVA ESTÁNDAR 2
+ *   CAL 0 - CAL 6
+ *   Longitud de onda: 405 nm
+ *
+ * SELECCIÓN DE CURVA
+ *
+ *   DO450 < 2.3  -> curva 450 nm
+ *   DO450 > 2.3  -> curva 405 nm
+ *
+ * MÉTODO:
+ *   Interpolación lineal punto a punto.
  *
  * IMPORTANTE:
- * - La corrección por blanco se aplica tanto a calibradores
- *   como a muestras.
- * - El rango válido de DO se obtiene de los DO REALES
- *   de los calibradores.
- * - Una muestra con el mismo DO que un calibrador debe
- *   devolver exactamente la concentración de ese calibrador.
+ *   La regresión lineal solamente se utiliza para obtener
+ *   información estadística de la curva (pendiente,
+ *   intercepto y R²).
+ *
+ *   La concentración de las muestras se obtiene siempre
+ *   mediante interpolación lineal entre calibradores.
+ *
+ * ============================================================
  */
+
+// ============================================================
+// CONSTANTES RA1000
+// ============================================================
+
+export const UMBRAL_DO450 = 2.3;
+
+export const LONGITUD_ONDA_CURVA_1 = 450;
+export const LONGITUD_ONDA_CURVA_2 = 405;
+
+// ============================================================
+// OBTENER NIVEL DE IgE
+// ============================================================
+
+export function obtenerNivelIgE(concentracion) {
+  const valor = Number(concentracion);
+
+  if (!Number.isFinite(valor)) {
+    return "—";
+  }
+
+  if (valor < 0.35) {
+    return "Clínicamente no significativo";
+  }
+
+  if (valor < 0.70) {
+    return "Muy bajo";
+  }
+
+  if (valor < 3.50) {
+    return "Bajo";
+  }
+
+  if (valor < 17.50) {
+    return "Medio";
+  }
+
+  if (valor < 50) {
+    return "Alto";
+  }
+
+  if (valor <= 100) {
+    return "Muy alto";
+  }
+
+  return "Extremadamente alto";
+}
+
+// ============================================================
+// UTILIDADES NUMÉRICAS
+// ============================================================
+
+function numeroValido(valor) {
+  if (
+    valor === null ||
+    valor === undefined ||
+    valor === ""
+  ) {
+    return false;
+  }
+
+  if (typeof valor === "string") {
+    const texto = valor.trim();
+
+    if (!texto) {
+      return false;
+    }
+
+    // Valores censurados como >3 o <0.1
+    // no son valores numéricos utilizables
+    if (
+      texto.startsWith(">") ||
+      texto.startsWith("<")
+    ) {
+      return false;
+    }
+
+    const numero = Number(
+      texto.replace(",", ".")
+    );
+
+    return Number.isFinite(numero);
+  }
+
+  return Number.isFinite(Number(valor));
+}
+
+// ============================================================
+// CONVERTIR A NÚMERO
+// ============================================================
+
+export function convertirNumero(valor) {
+  if (
+    valor === null ||
+    valor === undefined ||
+    valor === ""
+  ) {
+    return null;
+  }
+
+  if (typeof valor === "string") {
+    const texto = valor.trim();
+
+    if (!texto) {
+      return null;
+    }
+
+    // No convertir valores censurados
+    if (
+      texto.startsWith(">") ||
+      texto.startsWith("<")
+    ) {
+      return null;
+    }
+
+    const numero = Number(
+      texto.replace(",", ".")
+    );
+
+    return Number.isFinite(numero)
+      ? numero
+      : null;
+  }
+
+  const numero = Number(valor);
+
+  return Number.isFinite(numero)
+    ? numero
+    : null;
+}
+
+// ============================================================
+// DETECTAR VALOR CENSURADO
+// ============================================================
+
+export function esValorMayorQue(valor) {
+  if (typeof valor !== "string") {
+    return false;
+  }
+
+  return valor.trim().startsWith(">");
+}
+
+export function esValorMenorQue(valor) {
+  if (typeof valor !== "string") {
+    return false;
+  }
+
+  return valor.trim().startsWith("<");
+}
 
 // ============================================================
 // PROMEDIO
 // ============================================================
 
 export function promedio(valores) {
-  const numeros = valores
-    .map(Number)
-    .filter(Number.isFinite);
+  if (!Array.isArray(valores)) {
+    return null;
+  }
 
-  if (!numeros.length) {
+  const numeros = valores
+    .map(convertirNumero)
+    .filter(
+      (valor) => valor !== null
+    );
+
+  if (numeros.length === 0) {
     return null;
   }
 
   return (
-    numeros.reduce((suma, valor) => suma + valor, 0) /
-    numeros.length
+    numeros.reduce(
+      (suma, valor) => suma + valor,
+      0
+    ) / numeros.length
   );
 }
 
 // ============================================================
-// CORRECCIÓN POR BLANCO
+// CORREGIR DO POR BLANCO
 // ============================================================
 
-export function corregirDO(doValor, blancoPromedio = 0) {
-  const doNumerica = Number(doValor);
-  const blanco = Number(blancoPromedio);
+export function corregirDO(
+  doValor,
+  blancoPromedio
+) {
+  const doNumero =
+    convertirNumero(doValor);
 
-  if (!Number.isFinite(doNumerica)) {
+  const blanco =
+    convertirNumero(blancoPromedio);
+
+  if (
+    doNumero === null ||
+    blanco === null
+  ) {
     return null;
   }
 
-  const blancoValido = Number.isFinite(blanco)
-    ? blanco
-    : 0;
-
-  const corregida = doNumerica - blancoValido;
-
-  // Nunca permitir DO corregida negativa
-  return Math.max(0, corregida);
+  return doNumero - blanco;
 }
 
 // ============================================================
@@ -68,176 +242,221 @@ export function calcularPromedioBlancos(
   blanco1,
   blanco2
 ) {
-  const do1 = Number(blanco1);
-  const do2 = Number(blanco2);
-
-  if (
-    !Number.isFinite(do1) ||
-    !Number.isFinite(do2)
-  ) {
-    return null;
-  }
-
-  return (do1 + do2) / 2;
+  return promedio([
+    blanco1,
+    blanco2,
+  ]);
 }
 
 // ============================================================
-// VALIDACIÓN DE BLANCOS
+// VALIDAR BLANCO
 // ============================================================
 
-export function validarBlancos(
-  blanco1,
-  blanco2
+export function validarBlanco(
+  blancoPromedio,
+  limite = 0.1
 ) {
-  const promedioBlancos =
-    calcularPromedioBlancos(
-      blanco1,
-      blanco2
+  const valor =
+    convertirNumero(
+      blancoPromedio
     );
 
-  if (promedioBlancos === null) {
+  if (valor === null) {
     return {
       valido: false,
-      promedio: null,
-      mensaje:
-        "Debe ingresar las DO de ambos blancos.",
+      error:
+        "Debe ingresar las DO de los blancos.",
     };
   }
 
-  if (promedioBlancos > 0.1) {
+  if (valor > limite) {
     return {
       valido: false,
-      promedio: promedioBlancos,
-      mensaje:
-        "El promedio de los blancos debe ser menor o igual a 0.100.",
+      error:
+        `El promedio del blanco (${valor.toFixed(
+          3
+        )}) supera el límite permitido de ${limite.toFixed(
+          3
+        )}.`,
     };
   }
 
   return {
     valido: true,
-    promedio: promedioBlancos,
-    mensaje: "",
+    error: null,
   };
 }
 
 // ============================================================
-// OBTENER DO DE UN CALIBRADOR / MUESTRA
+// OBTENER DO
 // ============================================================
 
-function obtenerDO(item) {
-  if (!item) {
+function obtenerDO(
+  objeto,
+  longitudOnda
+) {
+  if (!objeto) {
     return null;
   }
 
-  if (
-    item.do1 !== undefined &&
-    item.do1 !== ""
-  ) {
-    return Number(item.do1);
+  if (longitudOnda === 405) {
+    return convertirNumero(
+      objeto.do405
+    );
   }
 
-  if (
-    item.do !== undefined &&
-    item.do !== ""
-  ) {
-    return Number(item.do);
+  if (longitudOnda === 450) {
+    return convertirNumero(
+      objeto.do450
+    );
   }
 
   return null;
 }
 
 // ============================================================
+// PREPARAR CALIBRADORES
+// ============================================================
+
+function prepararCalibradores(
+  calibradores,
+  longitudOnda
+) {
+  if (!Array.isArray(calibradores)) {
+    return [];
+  }
+
+  return calibradores
+    .map((calibrador) => {
+      const concentracion =
+        convertirNumero(
+          calibrador.concentracion
+        );
+
+      const doOriginal =
+        obtenerDO(
+          calibrador,
+          longitudOnda
+        );
+
+      return {
+        id: calibrador.id,
+        nombre: calibrador.nombre,
+
+        x: concentracion,
+
+        y: doOriginal,
+
+        concentracion,
+
+        doOriginal,
+
+        doCorregida: null,
+
+        valorOriginal:
+          longitudOnda === 405
+            ? calibrador.do405
+            : calibrador.do450,
+      };
+    })
+    .filter(
+      (punto) =>
+        punto.x !== null &&
+        punto.y !== null
+    );
+}
+
+// ============================================================
 // AJUSTE LINEAL
 // ============================================================
 //
-// y = a + b*x
+// Se utiliza solamente para estadísticas de la curva.
 //
-// x = concentración
-// y = DO corregida
-//
+// NO se utiliza para calcular la concentración de muestras.
 // ============================================================
 
-function ajustarLineal(puntos) {
-  if (!Array.isArray(puntos) || puntos.length < 2) {
-    throw new Error(
-      "Se necesitan al menos dos calibradores válidos."
-    );
+export function ajustarLineal(
+  puntos
+) {
+  if (!Array.isArray(puntos)) {
+    return null;
+  }
+
+  if (puntos.length < 2) {
+    return null;
   }
 
   const n = puntos.length;
 
   const sumaX = puntos.reduce(
-    (suma, punto) => suma + punto.x,
+    (suma, punto) =>
+      suma + punto.x,
     0
   );
 
   const sumaY = puntos.reduce(
-    (suma, punto) => suma + punto.y,
+    (suma, punto) =>
+      suma + punto.y,
     0
   );
 
   const sumaXY = puntos.reduce(
     (suma, punto) =>
-      suma + punto.x * punto.y,
+      suma +
+      punto.x * punto.y,
     0
   );
 
   const sumaX2 = puntos.reduce(
     (suma, punto) =>
-      suma + punto.x * punto.x,
+      suma +
+      punto.x * punto.x,
     0
   );
 
   const denominador =
-    n * sumaX2 - sumaX * sumaX;
+    n * sumaX2 -
+    sumaX * sumaX;
 
-  if (Math.abs(denominador) < 1e-12) {
-    throw new Error(
-      "No es posible calcular la regresión lineal."
-    );
+  if (
+    Math.abs(denominador) <
+    Number.EPSILON
+  ) {
+    return null;
   }
 
   const pendiente =
-    (n * sumaXY - sumaX * sumaY) /
+    (n * sumaXY -
+      sumaX * sumaY) /
     denominador;
 
   const intercepto =
-    (sumaY - pendiente * sumaX) /
+    (sumaY -
+      pendiente * sumaX) /
     n;
-
-  if (!Number.isFinite(pendiente)) {
-    throw new Error(
-      "La pendiente calculada no es válida."
-    );
-  }
-
-  if (Math.abs(pendiente) < 1e-12) {
-    throw new Error(
-      "La pendiente de la curva es demasiado pequeña."
-    );
-  }
 
   // ----------------------------------------------------------
   // R²
   // ----------------------------------------------------------
 
-  const promedioY = sumaY / n;
+  const promedioY =
+    sumaY / n;
 
-  let ssTotal = 0;
-  let ssResidual = 0;
+  let ssTot = 0;
+  let ssRes = 0;
 
   puntos.forEach((punto) => {
     const estimado =
-      intercepto +
-      pendiente * punto.x;
+      pendiente * punto.x +
+      intercepto;
 
-    ssTotal +=
+    ssTot +=
       Math.pow(
         punto.y - promedioY,
         2
       );
 
-    ssResidual +=
+    ssRes +=
       Math.pow(
         punto.y - estimado,
         2
@@ -245,9 +464,9 @@ function ajustarLineal(puntos) {
   });
 
   const r2 =
-    ssTotal > 0
-      ? 1 - ssResidual / ssTotal
-      : 1;
+    ssTot === 0
+      ? 1
+      : 1 - ssRes / ssTot;
 
   return {
     pendiente,
@@ -262,34 +481,12 @@ function ajustarLineal(puntos) {
 
 export function modeloLineal(
   x,
-  parametros
+  pendiente,
+  intercepto
 ) {
-  if (!parametros) {
-    return null;
-  }
-
-  const concentracion = Number(x);
-
-  if (!Number.isFinite(concentracion)) {
-    return null;
-  }
-
-  const pendiente =
-    Number(parametros.pendiente);
-
-  const intercepto =
-    Number(parametros.intercepto);
-
-  if (
-    !Number.isFinite(pendiente) ||
-    !Number.isFinite(intercepto)
-  ) {
-    return null;
-  }
-
   return (
-    intercepto +
-    pendiente * concentracion
+    pendiente * x +
+    intercepto
   );
 }
 
@@ -297,104 +494,210 @@ export function modeloLineal(
 // INVERSA LINEAL
 // ============================================================
 //
-// DO -> concentración
-//
-// IMPORTANTE:
-// El rango de DO se controla con los valores REALES
-// de los calibradores.
-//
-// No se utiliza:
-//   y(minConcentracion)
-//   y(maxConcentracion)
-//
-// porque una regresión no necesariamente pasa exactamente
-// por los puntos experimentales.
-//
+// Se mantiene por compatibilidad.
+// NO se utiliza para calcular muestras.
 // ============================================================
 
 export function inversaLineal(
-  doCorregida,
-  parametros,
-  doMinimo,
-  doMaximo
+  y,
+  pendiente,
+  intercepto
 ) {
-  const y = Number(doCorregida);
-
-  if (!Number.isFinite(y)) {
-    return null;
-  }
-
-  if (!parametros) {
-    return null;
-  }
-
-  const pendiente =
-    Number(parametros.pendiente);
-
-  const intercepto =
-    Number(parametros.intercepto);
-
   if (
-    !Number.isFinite(pendiente) ||
-    !Number.isFinite(intercepto)
+    !Number.isFinite(
+      Number(pendiente)
+    ) ||
+    pendiente === 0
   ) {
     return null;
   }
 
-  if (Math.abs(pendiente) < 1e-12) {
-    return null;
-  }
-
-  // ----------------------------------------------------------
-  // RANGO EXPERIMENTAL DE LOS CALIBRADORES
-  // ----------------------------------------------------------
-
-  const minimoDO = Number(doMinimo);
-  const maximoDO = Number(doMaximo);
-
-  if (
-    Number.isFinite(minimoDO) &&
-    Number.isFinite(maximoDO)
-  ) {
-    const margen = 1e-10;
-
-    const rangoMin =
-      Math.min(minimoDO, maximoDO) -
-      margen;
-
-    const rangoMax =
-      Math.max(minimoDO, maximoDO) +
-      margen;
-
-    if (
-      y < rangoMin ||
-      y > rangoMax
-    ) {
-      return null;
-    }
-  }
-
-  // ----------------------------------------------------------
-  // INVERSIÓN DE LA RECTA
-  // ----------------------------------------------------------
-
-  const concentracion =
+  return (
     (y - intercepto) /
-    pendiente;
+    pendiente
+  );
+}
 
-  if (!Number.isFinite(concentracion)) {
-    return null;
-  }
+// ============================================================
+// CONSTRUIR CURVA
+// ============================================================
 
-  // Pequeños errores numéricos alrededor de cero
+export function construirCurva({
+  calibradores,
+  longitudOnda,
+  blancoPromedio,
+}) {
   if (
-    concentracion < 0 &&
-    concentracion > -1e-9
+    !Array.isArray(calibradores)
   ) {
-    return 0;
+    throw new Error(
+      "No se recibieron los calibradores."
+    );
   }
 
-  return concentracion;
+  // ----------------------------------------------------------
+  // Preparar puntos
+  // ----------------------------------------------------------
+
+  const puntosIniciales =
+    prepararCalibradores(
+      calibradores,
+      longitudOnda
+    );
+
+  if (
+    puntosIniciales.length < 2
+  ) {
+    throw new Error(
+      `Debe ingresar al menos dos calibradores válidos para la curva de ${longitudOnda} nm.`
+    );
+  }
+
+  // ----------------------------------------------------------
+  // Validar concentraciones duplicadas
+  // ----------------------------------------------------------
+
+  const concentraciones =
+    puntosIniciales.map(
+      (punto) => punto.x
+    );
+
+  const concentracionesUnicas =
+    new Set(
+      concentraciones
+    );
+
+  if (
+    concentracionesUnicas.size !==
+    concentraciones.length
+  ) {
+    throw new Error(
+      `Hay concentraciones de calibradores duplicadas en la curva de ${longitudOnda} nm.`
+    );
+  }
+
+  // ----------------------------------------------------------
+  // Corregir por blanco
+  // ----------------------------------------------------------
+
+  const puntos =
+    puntosIniciales.map(
+      (punto) => ({
+        ...punto,
+
+        doCorregida:
+          corregirDO(
+            punto.doOriginal,
+            blancoPromedio
+          ),
+      })
+    );
+
+  // ----------------------------------------------------------
+  // Ordenar por concentración
+  // ----------------------------------------------------------
+
+  puntos.sort(
+    (a, b) => a.x - b.x
+  );
+
+  // ----------------------------------------------------------
+  // Validar DO corregidas
+  // ----------------------------------------------------------
+
+  const puntosValidos =
+    puntos.filter(
+      (punto) =>
+        Number.isFinite(
+          punto.doCorregida
+        )
+    );
+
+  if (
+    puntosValidos.length < 2
+  ) {
+    throw new Error(
+      `No hay suficientes calibradores válidos para construir la curva de ${longitudOnda} nm.`
+    );
+  }
+
+  // ----------------------------------------------------------
+  // Ajuste estadístico
+  // ----------------------------------------------------------
+
+  const parametros =
+    ajustarLineal(
+      puntosValidos.map(
+        (punto) => ({
+          x: punto.x,
+          y: punto.doCorregida,
+        })
+      )
+    );
+
+  // ----------------------------------------------------------
+  // Rangos
+  // ----------------------------------------------------------
+
+  const concentracionesValidas =
+    puntosValidos.map(
+      (punto) => punto.x
+    );
+
+  const DOValidas =
+    puntosValidos.map(
+      (punto) =>
+        punto.doCorregida
+    );
+
+  const minimo =
+    Math.min(
+      ...concentracionesValidas
+    );
+
+  const maximo =
+    Math.max(
+      ...concentracionesValidas
+    );
+
+  const doMinimo =
+    Math.min(
+      ...DOValidas
+    );
+
+  const doMaximo =
+    Math.max(
+      ...DOValidas
+    );
+
+  return {
+    modelo: "Lineal",
+
+    metodo:
+      "Interpolación lineal punto a punto",
+
+    longitudOnda,
+
+    parametros,
+
+    puntos,
+
+    puntosValidos,
+
+    minimo,
+    maximo,
+
+    doMinimo,
+    doMaximo,
+
+    blancoPromedio,
+
+    r2:
+      parametros?.r2 ??
+      null,
+
+    error: null,
+  };
 }
 
 // ============================================================
@@ -403,173 +706,33 @@ export function inversaLineal(
 
 export function calcularCurva(
   calibradores,
-  blancoPromedio = 0
+  blancoPromedio,
+  longitudOnda = 450
 ) {
-  if (
-    !Array.isArray(calibradores) ||
-    calibradores.length < 2
-  ) {
-    throw new Error(
-      "Debe ingresar al menos dos calibradores."
-    );
-  }
-
-  const blanco = Number(blancoPromedio);
-
-  const blancoValido =
-    Number.isFinite(blanco)
-      ? blanco
-      : 0;
-
-  // ----------------------------------------------------------
-  // PREPARAR PUNTOS
-  // ----------------------------------------------------------
-
-  const puntos = calibradores
-    .map((calibrador) => {
-      const x = Number(
-        calibrador.concentracion
-      );
-
-      const doOriginal =
-        obtenerDO(calibrador);
-
-      const y =
-        corregirDO(
-          doOriginal,
-          blancoValido
-        );
-
-      return {
-        id: calibrador.id,
-        nombre: calibrador.nombre,
-        x,
-        y,
-        doOriginal,
-        doCorregida: y,
-      };
-    })
-    .filter(
-      (punto) =>
-        Number.isFinite(punto.x) &&
-        Number.isFinite(punto.y)
-    );
-
-  // ----------------------------------------------------------
-  // VALIDACIÓN
-  // ----------------------------------------------------------
-
-  if (puntos.length < 2) {
-    throw new Error(
-      "Debe ingresar las DO de al menos dos calibradores."
-    );
-  }
-
-  // ----------------------------------------------------------
-  // CONCENTRACIONES DUPLICADAS
-  // ----------------------------------------------------------
-
-  const concentraciones =
-    puntos.map((punto) => punto.x);
-
-  const concentracionesUnicas =
-    new Set(concentraciones);
-
-  if (
-    concentracionesUnicas.size !==
-    concentraciones.length
-  ) {
-    throw new Error(
-      "No puede haber calibradores con la misma concentración."
-    );
-  }
-
-  // ----------------------------------------------------------
-  // ORDENAR POR CONCENTRACIÓN
-  // ----------------------------------------------------------
-
-  puntos.sort(
-    (a, b) => a.x - b.x
-  );
-
-  // ----------------------------------------------------------
-  // REGRESIÓN LINEAL
-  // ----------------------------------------------------------
-
-  const parametros =
-    ajustarLineal(puntos);
-
-  // ----------------------------------------------------------
-  // RANGO DE CONCENTRACIÓN
-  // ----------------------------------------------------------
-
-  const minimo =
-    Math.min(
-      ...puntos.map(
-        (punto) => punto.x
-      )
-    );
-
-  const maximo =
-    Math.max(
-      ...puntos.map(
-        (punto) => punto.x
-      )
-    );
-
-  // ----------------------------------------------------------
-  // RANGO REAL DE DO
-  // ----------------------------------------------------------
-
-  const doMinimo =
-    Math.min(
-      ...puntos.map(
-        (punto) => punto.y
-      )
-    );
-
-  const doMaximo =
-    Math.max(
-      ...puntos.map(
-        (punto) => punto.y
-      )
-    );
-
-  // ----------------------------------------------------------
-  // RESULTADO
-  // ----------------------------------------------------------
-
-  return {
-    modelo: "Lineal",
-
-    parametros,
-
-    puntos,
-
-    minimo,
-    maximo,
-
-    doMinimo,
-    doMaximo,
-
-    blancoPromedio:
-      blancoValido,
-
-    r2: parametros.r2,
-
-    error: null,
-  };
+  return construirCurva({
+    calibradores,
+    longitudOnda,
+    blancoPromedio,
+  });
 }
 
 // ============================================================
-// INTERPOLACIÓN ENTRE CALIBRADORES
+// INTERPOLACIÓN LINEAL
 // ============================================================
 //
-// DO corregida -> concentración
+// IMPORTANTE:
 //
-// Se interpola entre los puntos experimentales, no sobre la
-// recta de regresión. Así, una DO igual a la de un calibrador
-// produce exactamente la concentración de ese calibrador.
+// La concentración se obtiene únicamente mediante
+// interpolación entre puntos consecutivos.
+//
+// NO se extrapola.
+//
+// Si la DO está:
+//
+//   debajo de CAL0 -> Fuera de rango
+//   entre calibradores -> Interpolación
+//   igual a calibrador -> Concentración exacta
+//   encima de CAL6 -> Fuera de rango
 //
 // ============================================================
 
@@ -577,155 +740,247 @@ export function interpolarConcentracion(
   doCorregida,
   puntos
 ) {
-  const y = Number(doCorregida);
+  const y =
+    convertirNumero(
+      doCorregida
+    );
 
-  if (!Number.isFinite(y)) {
+  if (
+    y === null ||
+    !Array.isArray(puntos)
+  ) {
     return null;
   }
 
-  if (!Array.isArray(puntos) || puntos.length < 2) {
+  // ----------------------------------------------------------
+  // Preparar puntos válidos
+  // ----------------------------------------------------------
+
+  const puntosValidos =
+    puntos
+      .filter(
+        (punto) =>
+          Number.isFinite(
+            Number(punto.x)
+          ) &&
+          Number.isFinite(
+            Number(
+              punto.doCorregida
+            )
+          )
+      )
+      .map((punto) => ({
+        ...punto,
+
+        x: Number(punto.x),
+
+        y: Number(
+          punto.doCorregida
+        ),
+      }))
+      .sort(
+        (a, b) => a.y - b.y
+      );
+
+  if (
+    puntosValidos.length < 2
+  ) {
     return null;
   }
 
-  const ordenados = puntos
-    .map((punto) => ({
-      x: Number(punto.x),
-      y: Number(punto.y),
-    }))
-    .filter(
+  // ----------------------------------------------------------
+  // Tolerancia para coincidencia exacta
+  // ----------------------------------------------------------
+
+  const tolerancia =
+    1e-7;
+
+  const puntoExacto =
+    puntosValidos.find(
       (punto) =>
-        Number.isFinite(punto.x) &&
-        Number.isFinite(punto.y)
-    )
-    .sort((a, b) => a.x - b.x);
+        Math.abs(
+          y - punto.y
+        ) <= tolerancia
+    );
 
-  if (ordenados.length < 2) {
-    return null;
-  }
-
-  const tolerancia = 1e-7;
-
-  // ----------------------------------------------------------
-  // COINCIDENCIA EXACTA CON UN CALIBRADOR
-  // ----------------------------------------------------------
-
-  const exacto = ordenados.find(
-    (punto) => Math.abs(punto.y - y) <= tolerancia
-  );
-
-  if (exacto) {
-    return exacto.x;
+  if (puntoExacto) {
+    return puntoExacto.x;
   }
 
   // ----------------------------------------------------------
-  // RANGO EXPERIMENTAL
+  // FUERA DE RANGO INFERIOR
+  // ----------------------------------------------------------
+  //
+  // Antes devolvíamos 0.
+  //
+  // Esto era incorrecto porque una DO por debajo de CAL0
+  // no debe convertirse automáticamente en 0 UI/mL.
+  //
+  // Debe informarse como fuera de rango.
   // ----------------------------------------------------------
 
-  const doMinimo = Math.min(
-    ...ordenados.map((punto) => punto.y)
-  );
+  const primero =
+    puntosValidos[0];
 
-  const doMaximo = Math.max(
-    ...ordenados.map((punto) => punto.y)
-  );
-
-  if (y < doMinimo - tolerancia) {
-    return 0;
-    }
-  if (y > doMaximo + tolerancia) {
+  if (y < primero.y) {
     return null;
-    }
+  }
 
   // ----------------------------------------------------------
-  // SEGMENTO ENTRE CALIBRADORES CONSECUTIVOS
+  // FUERA DE RANGO SUPERIOR
   // ----------------------------------------------------------
 
-  for (let i = 0; i < ordenados.length - 1; i++) {
-    const inicio = ordenados[i];
-    const fin = ordenados[i + 1];
+  const ultimo =
+    puntosValidos[
+      puntosValidos.length - 1
+    ];
 
-    const doInferior = Math.min(inicio.y, fin.y);
-    const doSuperior = Math.max(inicio.y, fin.y);
+  if (y > ultimo.y) {
+    return null;
+  }
 
-    if (y < doInferior - tolerancia || y > doSuperior + tolerancia) {
-      continue;
+  // ----------------------------------------------------------
+  // BUSCAR SEGMENTO
+  // ----------------------------------------------------------
+
+  for (
+    let i = 0;
+    i <
+    puntosValidos.length - 1;
+    i++
+  ) {
+    const p1 =
+      puntosValidos[i];
+
+    const p2 =
+      puntosValidos[i + 1];
+
+    const y1 = p1.y;
+    const y2 = p2.y;
+
+    // --------------------------------------------------------
+    // Segmento ascendente
+    // --------------------------------------------------------
+
+    if (
+      y >= y1 &&
+      y <= y2
+    ) {
+      if (
+        Math.abs(
+          y2 - y1
+        ) < Number.EPSILON
+      ) {
+        return p1.x;
+      }
+
+      const proporcion =
+        (y - y1) /
+        (y2 - y1);
+
+      return (
+        p1.x +
+        proporcion *
+          (p2.x - p1.x)
+      );
     }
 
-    const deltaDO = fin.y - inicio.y;
+    // --------------------------------------------------------
+    // Segmento descendente
+    // --------------------------------------------------------
 
-    if (Math.abs(deltaDO) < 1e-12) {
-      continue;
+    if (
+      y <= y1 &&
+      y >= y2
+    ) {
+      if (
+        Math.abs(
+          y2 - y1
+        ) < Number.EPSILON
+      ) {
+        return p1.x;
+      }
+
+      const proporcion =
+        (y - y1) /
+        (y2 - y1);
+
+      return (
+        p1.x +
+        proporcion *
+          (p2.x - p1.x)
+      );
     }
-
-    const concentracion =
-      inicio.x +
-      ((y - inicio.y) * (fin.x - inicio.x)) / deltaDO;
-
-    if (!Number.isFinite(concentracion)) {
-      return null;
-    }
-
-    if (concentracion < 0 && concentracion > -1e-9) {
-      return 0;
-    }
-
-    return concentracion;
   }
 
   return null;
 }
 
 // ============================================================
-// CONVERTIR DO -> CONCENTRACIÓN
-// ============================================================
-//
-// ESTA ES LA ÚNICA FUNCIÓN QUE DEBE UTILIZARSE PARA
-// CONVERTIR UNA DO DE MUESTRA EN CONCENTRACIÓN.
-//
+// CONVERTIR DO A CONCENTRACIÓN
 // ============================================================
 
 export function convertirDOaConcentracion(
   doValor,
   curva
 ) {
+  if (!curva) {
+    return {
+      doOriginal: doValor,
+
+      doCorregida: null,
+
+      concentracion: null,
+
+      estado: "Sin curva",
+    };
+  }
+
+  const doNumero =
+    convertirNumero(
+      doValor
+    );
+
   if (
-    !curva ||
-    !Array.isArray(curva.puntos)
+    doNumero === null
   ) {
-    return null;
+    return {
+      doOriginal: doValor,
+
+      doCorregida: null,
+
+      concentracion: null,
+
+      estado: "Sin datos",
+    };
   }
-
-  const doNumerica =
-    Number(doValor);
-
-  if (!Number.isFinite(doNumerica)) {
-    return null;
-  }
-
-  const blanco =
-    Number(curva.blancoPromedio);
-
-  const blancoValido =
-    Number.isFinite(blanco)
-      ? blanco
-      : 0;
 
   // ----------------------------------------------------------
-  // CORRECCIÓN POR BLANCO
+  // Corregir DO por blanco
   // ----------------------------------------------------------
 
   const doCorregida =
     corregirDO(
-      doNumerica,
-      blancoValido
+      doNumero,
+      curva.blancoPromedio
     );
 
-  if (doCorregida === null) {
-    return null;
+  if (
+    doCorregida === null
+  ) {
+    return {
+      doOriginal: doValor,
+
+      doCorregida: null,
+
+      concentracion: null,
+
+      estado: "Sin datos",
+    };
   }
 
   // ----------------------------------------------------------
-  // INTERPOLACIÓN SOBRE LOS CALIBRADORES
+  // Interpolación
   // ----------------------------------------------------------
 
   const concentracion =
@@ -734,27 +989,402 @@ export function convertirDOaConcentracion(
       curva.puntos
     );
 
-  if (concentracion === null) {
-    return null;
+  // ----------------------------------------------------------
+  // FUERA DE RANGO
+  // ----------------------------------------------------------
+
+  if (
+    concentracion === null
+  ) {
+    return {
+      doOriginal: doValor,
+
+      doCorregida,
+
+      concentracion: null,
+
+      estado: "Fuera de rango",
+    };
   }
 
+  // ----------------------------------------------------------
+  // RESULTADO VÁLIDO
+  // ----------------------------------------------------------
+
   return {
-    doOriginal:
-      doNumerica,
+    doOriginal: doValor,
 
     doCorregida,
 
     concentracion,
+
+    estado: "Válido",
   };
 }
 
 // ============================================================
-// CALCULAR MUESTRAS
+// SELECCIONAR CURVA RA1000
+// ============================================================
+//
+// La selección se realiza SIEMPRE utilizando DO450.
+//
+//   DO450 < 2.3 -> curva 450 nm
+//   DO450 > 2.3 -> curva 405 nm
+//
+// Exactamente 2.3 queda indefinido porque el dato suministrado
+// del protocolo no indica qué curva utilizar.
 // ============================================================
 
-export function calcularMuestras(
+export function seleccionarCurvaRA1000(
+  do450,
+  curvas
+) {
+  const valor450 =
+    convertirNumero(
+      do450
+    );
+
+  if (
+    valor450 === null
+  ) {
+    return {
+      curva: null,
+
+      longitudOnda: null,
+
+      nombreCurva: null,
+
+      error:
+        "Debe ingresar una DO válida a 450 nm para seleccionar la curva.",
+    };
+  }
+
+  // ----------------------------------------------------------
+  // CURVA 1 - 450 nm
+  // ----------------------------------------------------------
+
+  if (
+    valor450 < UMBRAL_DO450
+  ) {
+    return {
+      curva:
+        curvas?.curva450 ??
+        null,
+
+      longitudOnda:
+        LONGITUD_ONDA_CURVA_1,
+
+      nombreCurva:
+        "Curva estándar 1",
+
+      error:
+        curvas?.curva450
+          ? null
+          : "No está disponible la curva estándar de 450 nm.",
+    };
+  }
+
+  // ----------------------------------------------------------
+  // CURVA 2 - 405 nm
+  // ----------------------------------------------------------
+
+  if (
+    valor450 > UMBRAL_DO450
+  ) {
+    return {
+      curva:
+        curvas?.curva405 ??
+        null,
+
+      longitudOnda:
+        LONGITUD_ONDA_CURVA_2,
+
+      nombreCurva:
+        "Curva estándar 2",
+
+      error:
+        curvas?.curva405
+          ? null
+          : "No está disponible la curva estándar de 405 nm.",
+    };
+  }
+
+  // ----------------------------------------------------------
+  // EXACTAMENTE 2.3
+  // ----------------------------------------------------------
+
+  return {
+    curva: null,
+
+    longitudOnda: null,
+
+    nombreCurva: null,
+
+    error:
+      `La DO450 es exactamente ${UMBRAL_DO450}. El inserto RA1000 no define qué curva utilizar en ese punto.`,
+  };
+}
+
+// ============================================================
+// CALCULAR UNA MUESTRA
+// ============================================================
+
+export function calcularMuestraRA1000(
+  muestra,
+  curvas
+) {
+  const do450Original =
+    muestra?.do450;
+
+  const do405Original =
+    muestra?.do405;
+
+  // ----------------------------------------------------------
+  // Validar DO450
+  // ----------------------------------------------------------
+
+  const do450 =
+    convertirNumero(
+      do450Original
+    );
+
+  if (
+    do450 === null
+  ) {
+    return {
+      id: muestra?.id,
+
+      nombre: muestra?.nombre,
+
+      codigo: muestra?.codigo,
+
+      do450:
+        do450Original ?? "",
+
+      do405:
+        do405Original ?? "",
+
+      curva: null,
+
+      longitudOnda: null,
+
+      doOriginal: null,
+
+      doCorregida: null,
+
+      concentracionBase: null,
+
+      dilucion:
+        convertirNumero(
+          muestra?.dilucion
+        ) ?? 1,
+
+      concentracion: null,
+
+      estado: "Sin datos",
+
+      error:
+        "No se puede seleccionar la curva sin una DO válida a 450 nm.",
+    };
+  }
+
+  // ----------------------------------------------------------
+  // Seleccionar curva
+  // ----------------------------------------------------------
+
+  const seleccion =
+    seleccionarCurvaRA1000(
+      do450,
+      curvas
+    );
+
+  if (
+    seleccion.error
+  ) {
+    return {
+      id: muestra?.id,
+
+      nombre: muestra?.nombre,
+
+      codigo: muestra?.codigo,
+
+      do450:
+        do450Original ?? "",
+
+      do405:
+        do405Original ?? "",
+
+      curva:
+        seleccion.nombreCurva,
+
+      longitudOnda:
+        seleccion.longitudOnda,
+
+      doOriginal: null,
+
+      doCorregida: null,
+
+      concentracionBase: null,
+
+      dilucion:
+        convertirNumero(
+          muestra?.dilucion
+        ) ?? 1,
+
+      concentracion: null,
+
+      estado: "Sin curva",
+
+      error:
+        seleccion.error,
+    };
+  }
+
+  // ----------------------------------------------------------
+  // Determinar qué DO utilizar
+  // ----------------------------------------------------------
+
+  const doUtilizada =
+    seleccion.longitudOnda === 450
+      ? muestra?.do450
+      : muestra?.do405;
+
+  const doUtilizadaNumero =
+    convertirNumero(
+      doUtilizada
+    );
+
+  if (
+    doUtilizadaNumero === null
+  ) {
+    return {
+      id: muestra?.id,
+
+      nombre: muestra?.nombre,
+
+      codigo: muestra?.codigo,
+
+      do450:
+        do450Original ?? "",
+
+      do405:
+        do405Original ?? "",
+
+      curva:
+        seleccion.nombreCurva,
+
+      longitudOnda:
+        seleccion.longitudOnda,
+
+      doOriginal:
+        doUtilizada ?? "",
+
+      doCorregida: null,
+
+      concentracionBase: null,
+
+      dilucion:
+        convertirNumero(
+          muestra?.dilucion
+        ) ?? 1,
+
+      concentracion: null,
+
+      estado: "Sin datos",
+
+      error:
+        `Debe ingresar una DO válida a ${seleccion.longitudOnda} nm.`,
+    };
+  }
+
+  // ----------------------------------------------------------
+  // Convertir DO a concentración
+  // ----------------------------------------------------------
+
+  const conversion =
+    convertirDOaConcentracion(
+      doUtilizadaNumero,
+      seleccion.curva
+    );
+
+  // ----------------------------------------------------------
+  // Dilución
+  // ----------------------------------------------------------
+
+  const dilucion =
+    convertirNumero(
+      muestra?.dilucion
+    );
+
+  const dilucionFinal =
+    dilucion !== null &&
+    dilucion > 0
+      ? dilucion
+      : 1;
+
+  // ----------------------------------------------------------
+  // Concentración base
+  // ----------------------------------------------------------
+
+  const concentracionBase =
+    conversion.concentracion;
+
+  // ----------------------------------------------------------
+  // Aplicar dilución
+  // ----------------------------------------------------------
+
+  const concentracion =
+    concentracionBase !== null
+      ? concentracionBase *
+        dilucionFinal
+      : null;
+
+  return {
+    id: muestra?.id,
+
+    nombre: muestra?.nombre,
+
+    codigo: muestra?.codigo,
+
+    do450:
+      do450Original ?? "",
+
+    do405:
+      do405Original ?? "",
+
+    curva:
+      seleccion.nombreCurva,
+
+    longitudOnda:
+      seleccion.longitudOnda,
+
+    doOriginal:
+      conversion.doOriginal,
+
+    doCorregida:
+      conversion.doCorregida,
+
+    concentracionBase,
+
+    dilucion:
+      dilucionFinal,
+
+    concentracion,
+
+    estado:
+      conversion.estado,
+
+    error: null,
+  };
+}
+
+// ============================================================
+// CALCULAR MUESTRAS RA1000
+// ============================================================
+
+export function calcularMuestrasRA1000(
   muestras,
-  curva
+  curvas
 ) {
   if (
     !Array.isArray(muestras)
@@ -762,107 +1392,106 @@ export function calcularMuestras(
     return [];
   }
 
-  if (!curva) {
-    throw new Error(
-      "Primero debe calcular la curva."
+  return muestras.map(
+    (muestra) =>
+      calcularMuestraRA1000(
+        muestra,
+        curvas
+      )
+  );
+}
+
+// ============================================================
+// COMPATIBILIDAD CON CALCULAR MUESTRAS
+// ============================================================
+
+export function calcularMuestras(
+  muestras,
+  curvas
+) {
+  // ----------------------------------------------------------
+  // RA1000
+  // ----------------------------------------------------------
+
+  if (
+    curvas &&
+    (
+      curvas.curva450 ||
+      curvas.curva405
+    )
+  ) {
+    return calcularMuestrasRA1000(
+      muestras,
+      curvas
+    );
+  }
+
+  // ----------------------------------------------------------
+  // Compatibilidad con versión anterior
+  // ----------------------------------------------------------
+
+  if (!Array.isArray(muestras)) {
+    return [];
+  }
+
+  if (!curvas) {
+    return muestras.map(
+      (muestra) => ({
+        id: muestra?.id,
+
+        nombre: muestra?.nombre,
+
+        codigo: muestra?.codigo,
+
+        doOriginal:
+          muestra?.do1 ?? "",
+
+        doCorregida: null,
+
+        concentracion: null,
+
+        dilucion:
+          convertirNumero(
+            muestra?.dilucion
+          ) ?? 1,
+
+        estado: "Sin curva",
+      })
     );
   }
 
   return muestras.map(
     (muestra) => {
-      const doOriginal =
-        obtenerDO(muestra);
+      const conversion =
+        convertirDOaConcentracion(
+          muestra?.do1,
+          curvas
+        );
 
       const dilucion =
-        Number(muestra.dilucion);
+        convertirNumero(
+          muestra?.dilucion
+        );
 
-      if (
-        !Number.isFinite(
-          doOriginal
-        )
-      ) {
-        return {
-          ...muestra,
-
-          doOriginal: null,
-          doCorregida: null,
-
-          promedio: null,
-
-          concentracion: null,
-          concentracionSinDiluir:
-            null,
-
-          estado:
-            "Sin datos",
-        };
-      }
-
-      const dilucionValida =
-        Number.isFinite(dilucion) &&
+      const dilucionFinal =
+        dilucion !== null &&
         dilucion > 0
           ? dilucion
           : 1;
 
-      // ------------------------------------------------------
-      // CONVERSIÓN CENTRALIZADA
-      // ------------------------------------------------------
-
-      const conversion =
-        convertirDOaConcentracion(
-          doOriginal,
-          curva
-        );
-
-      if (conversion === null) {
-  const blanco = Number(curva.blancoPromedio);
-
-  const blancoValido = Number.isFinite(blanco)
-    ? blanco
-    : 0;
-
-  const doCorregida = corregirDO(
-    doOriginal,
-    blancoValido
-  );
-
-  return {
-    ...muestra,
-
-    doOriginal,
-
-    doCorregida,
-
-    // Compatibilidad con App.jsx
-    promedio: doCorregida,
-
-    concentracion: null,
-
-    concentracionSinDiluir: null,
-
-    dilucion: dilucionValida,
-
-    estado: "Fuera de rango",
-  };
-}
-
-      // ------------------------------------------------------
-      // CONCENTRACIÓN SIN DILUIR
-      // ------------------------------------------------------
-
-      const concentracionSinDiluir =
-        conversion.concentracion;
-
-      // ------------------------------------------------------
-      // APLICAR DILUCIÓN
-      // ------------------------------------------------------
-
       const concentracion =
-        concentracionSinDiluir *
-        dilucionValida;
+        conversion.concentracion !==
+        null
+          ? conversion.concentracion *
+            dilucionFinal
+          : null;
 
       return {
-        ...muestra,
+        id: muestra?.id,
+
+        nombre: muestra?.nombre,
+
+        codigo: muestra?.codigo,
 
         doOriginal:
           conversion.doOriginal,
@@ -870,85 +1499,224 @@ export function calcularMuestras(
         doCorregida:
           conversion.doCorregida,
 
-        // Compatibilidad con App.jsx
-        promedio:
-          conversion.doCorregida,
-
         concentracion,
 
-        concentracionSinDiluir,
-
         dilucion:
-          dilucionValida,
+          dilucionFinal,
 
         estado:
-          "Válido",
+          conversion.estado,
       };
     }
   );
 }
 
 // ============================================================
-// CALCULAR CONTROL
+// CONTROL RA1000
 // ============================================================
 
-export function calcularControl(
-  doControl,
-  curva,
-  minimo,
-  maximo
+export function calcularControlRA1000(
+  control,
+  curvas
 ) {
-  if (!curva) {
-    return null;
-  }
+  const muestraControl = {
+    id: "CTL",
 
-  const conversion =
-    convertirDOaConcentracion(
-      doControl,
-      curva
+    nombre: "CTL",
+
+    codigo: "",
+
+    do405:
+      control?.do405 ?? "",
+
+    do450:
+      control?.do450 ?? "",
+
+    dilucion: 1,
+  };
+
+  const resultado =
+    calcularMuestraRA1000(
+      muestraControl,
+      curvas
     );
 
-  if (!conversion) {
-    return {
-      doOriginal:
-        Number(doControl),
+  // ----------------------------------------------------------
+  // Rango del control
+  // ----------------------------------------------------------
 
-      doCorregida: null,
+  const minimo =
+    convertirNumero(
+      control?.minimo
+    );
 
-      concentracion: null,
+  const maximo =
+    convertirNumero(
+      control?.maximo
+    );
 
-      valido: false,
-    };
+  if (
+    resultado.estado ===
+      "Válido" &&
+    resultado.concentracion !==
+      null
+  ) {
+    if (
+      minimo !== null &&
+      resultado.concentracion <
+        minimo
+    ) {
+      return {
+        ...resultado,
+
+        estado:
+          "Fuera de rango",
+
+        error:
+          "El control está por debajo del rango permitido.",
+      };
+    }
+
+    if (
+      maximo !== null &&
+      resultado.concentracion >
+        maximo
+    ) {
+      return {
+        ...resultado,
+
+        estado:
+          "Fuera de rango",
+
+        error:
+          "El control está por encima del rango permitido.",
+      };
+    }
   }
 
-  const concentracion =
-    conversion.concentracion;
+  return resultado;
+}
 
-  const min =
-    Number(minimo);
+// ============================================================
+// INFORMACIÓN DE LOS BLANCOS RA1000
+// ============================================================
 
-  const max =
-    Number(maximo);
+export function prepararBlancosRA1000(
+  blancos
+) {
+  const blanco405 =
+    calcularPromedioBlancos(
+      blancos?.do405_1,
+      blancos?.do405_2
+    );
 
-  const tieneLimites =
-    Number.isFinite(min) &&
-    Number.isFinite(max);
-
-  const valido =
-    tieneLimites
-      ? concentracion >= min &&
-        concentracion <= max
-      : true;
+  const blanco450 =
+    calcularPromedioBlancos(
+      blancos?.do450_1,
+      blancos?.do450_2
+    );
 
   return {
-    doOriginal:
-      conversion.doOriginal,
+    blanco405,
 
-    doCorregida:
-      conversion.doCorregida,
-
-    concentracion,
-
-    valido,
+    blanco450,
   };
 }
+
+// ============================================================
+// CALCULAR BLANCOS RA1000
+// ============================================================
+
+export function calcularBlancosRA1000(
+  blancos
+) {
+  const {
+    blanco405,
+    blanco450,
+  } =
+    prepararBlancosRA1000(
+      blancos
+    );
+
+  const validacion405 =
+    validarBlanco(
+      blanco405
+    );
+
+  const validacion450 =
+    validarBlanco(
+      blanco450
+    );
+
+  return {
+    blanco405,
+
+    blanco450,
+
+    valido405:
+      validacion405.valido,
+
+    valido450:
+      validacion450.valido,
+
+    error405:
+      validacion405.error,
+
+    error450:
+      validacion450.error,
+
+    valido:
+      validacion405.valido &&
+      validacion450.valido,
+  };
+}
+
+// ============================================================
+// EXPORT DEFAULT
+// ============================================================
+
+export default {
+  promedio,
+
+  convertirNumero,
+
+  esValorMayorQue,
+
+  esValorMenorQue,
+
+  corregirDO,
+
+  calcularPromedioBlancos,
+
+  validarBlanco,
+
+  ajustarLineal,
+
+  modeloLineal,
+
+  inversaLineal,
+
+  construirCurva,
+
+  calcularCurva,
+
+  interpolarConcentracion,
+
+  convertirDOaConcentracion,
+
+  seleccionarCurvaRA1000,
+
+  calcularMuestraRA1000,
+
+  calcularMuestrasRA1000,
+
+  calcularMuestras,
+
+  calcularControlRA1000,
+
+  prepararBlancosRA1000,
+
+  calcularBlancosRA1000,
+
+  obtenerNivelIgE,
+};

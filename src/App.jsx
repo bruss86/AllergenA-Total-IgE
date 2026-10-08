@@ -1,13 +1,17 @@
-import { useRef, useState } from "react";
+import { useState, useRef } from "react";
 
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
-import "./index.css";
+
 import * as XLSX from "xlsx";
+
+import "./index.css";
 
 import {
   calcularCurva,
   calcularMuestras,
+  calcularBlancosRA1000,
+  obtenerNivelIgE,
 } from "./utils/calculoIge";
 
 import { exportarResultadosPdf } from "./utils/exportarPdf";
@@ -19,42 +23,60 @@ import Microplaca from "./components/Microplaca";
 // CALIBRADORES INICIALES
 // ============================================================
 
+// RA1000:
+//
+// Curva estándar 1 -> CAL 0 a CAL 4 -> 450 nm
+// Curva estándar 2 -> CAL 0 a CAL 6 -> 405 nm
+
 const calibradoresIniciales = [
   {
     id: 0,
     nombre: "CAL 0",
     concentracion: 0,
-    do1: "",
+    do405: "",
+    do450: "",
   },
   {
     id: 1,
     nombre: "CAL 1",
     concentracion: 10,
-    do1: "",
+    do405: "",
+    do450: "",
   },
   {
     id: 2,
     nombre: "CAL 2",
     concentracion: 50,
-    do1: "",
+    do405: "",
+    do450: "",
   },
   {
     id: 3,
     nombre: "CAL 3",
     concentracion: 100,
-    do1: "",
+    do405: "",
+    do450: "",
   },
   {
     id: 4,
     nombre: "CAL 4",
     concentracion: 250,
-    do1: "",
+    do405: "",
+    do450: "",
   },
   {
     id: 5,
     nombre: "CAL 5",
     concentracion: 500,
-    do1: "",
+    do405: "",
+    do450: "",
+  },
+  {
+    id: 6,
+    nombre: "CAL 6",
+    concentracion: 1000,
+    do405: "",
+    do450: "",
   },
 ];
 
@@ -65,85 +87,99 @@ const calibradoresIniciales = [
 const muestrasIniciales = [
   {
     id: 1,
-    nombre: "M-001",
-    do1: "",
+    nombre: "M1",
+    codigo: "",
+    do405: "",
+    do450: "",
     dilucion: 1,
   },
 ];
 
 // ============================================================
-// APP
+// COMPONENTE
 // ============================================================
 
-function App() {
-
-  const inputExcelRef = useRef(null);
-  // ==========================================================
-  // DATOS DEL ENSAYO
-  // ==========================================================
+export default function App() {
+  // ----------------------------------------------------------
+  // ENSAYO
+  // ----------------------------------------------------------
 
   const [datosEnsayo, setDatosEnsayo] = useState({
-    fecha: new Date().toISOString().slice(0, 10),
+    fecha: new Date().toISOString().split("T")[0],
     lote: "",
     operador: "",
   });
 
-  // ==========================================================
+  // ----------------------------------------------------------
   // CALIBRADORES
-  // ==========================================================
+  // ----------------------------------------------------------
 
   const [calibradores, setCalibradores] = useState(
     calibradoresIniciales
   );
 
-  // ==========================================================
+  // ----------------------------------------------------------
+  // BLANCOS
+  // ----------------------------------------------------------
+
+  const [blancos, setBlancos] = useState({
+    do405_1: "",
+    do405_2: "",
+    do450_1: "",
+    do450_2: "",
+  });
+
+  // ----------------------------------------------------------
   // CONTROL
-  // ==========================================================
+  // ----------------------------------------------------------
 
   const [control, setControl] = useState({
-    do1: "",
+    do405: "",
+    do450: "",
     minimo: "",
     maximo: "",
   });
 
-  // ==========================================================
-  // BLANCOS
-  // ==========================================================
-
-  const [blancos, setBlancos] = useState({
-    do1: 0,
-    do2: 0,
-  });
-
-  // ==========================================================
+  // ----------------------------------------------------------
   // MUESTRAS
-  // ==========================================================
+  // ----------------------------------------------------------
 
-  const [muestras, setMuestras] =
-    useState(muestrasIniciales);
+  const [muestras, setMuestras] = useState(
+    muestrasIniciales
+  );
 
-  const [cantidadMuestras, setCantidadMuestras] =
-    useState(1);
-
-  // ==========================================================
+  // ----------------------------------------------------------
   // RESULTADOS
-  // ==========================================================
+  // ----------------------------------------------------------
 
   const [resultados, setResultados] = useState([]);
 
-  const [curva, setCurva] = useState(null);
+  // ----------------------------------------------------------
+  // CURVAS
+  // ----------------------------------------------------------
 
-  const [errorCalculo, setErrorCalculo] =
-    useState("");
+  const [curvas, setCurvas] = useState({
+    curva450: null,
+    curva405: null,
+  });
+
+  // ----------------------------------------------------------
+  // ERRORES
+  // ----------------------------------------------------------
+
+  const [errorCalculo, setErrorCalculo] = useState("");
+
+  // ----------------------------------------------------------
+  // INPUT EXCEL OCULTO
+  // ----------------------------------------------------------
+
+  const inputExcelRef = useRef(null);
 
   // ==========================================================
-  // ACTUALIZAR DATOS DEL ENSAYO
+  // MANEJO DE ENSAYO
   // ==========================================================
 
-  const actualizarEnsayo = (
-    campo,
-    valor
-  ) => {
+  const handleEnsayoChange = (campo, valor) => {
     setDatosEnsayo((prev) => ({
       ...prev,
       [campo]: valor,
@@ -151,14 +187,10 @@ function App() {
   };
 
   // ==========================================================
-  // ACTUALIZAR CALIBRADOR
+  // CALIBRADORES
   // ==========================================================
 
-  const actualizarCalibrador = (
-    id,
-    campo,
-    valor
-  ) => {
+  const handleCalibradorChange = (id, campo, valor) => {
     setCalibradores((prev) =>
       prev.map((calibrador) =>
         calibrador.id === id
@@ -172,27 +204,10 @@ function App() {
   };
 
   // ==========================================================
-  // ACTUALIZAR CONTROL
+  // BLANCOS
   // ==========================================================
 
-  const actualizarControl = (
-    campo,
-    valor
-  ) => {
-    setControl((prev) => ({
-      ...prev,
-      [campo]: valor,
-    }));
-  };
-
-  // ==========================================================
-  // ACTUALIZAR BLANCO
-  // ==========================================================
-
-  const actualizarBlanco = (
-    campo,
-    valor
-  ) => {
+  const handleBlancoChange = (campo, valor) => {
     setBlancos((prev) => ({
       ...prev,
       [campo]: valor,
@@ -200,41 +215,21 @@ function App() {
   };
 
   // ==========================================================
-  // PROMEDIO DE BLANCOS
+  // CONTROL
   // ==========================================================
 
-  const blancoDO1 = Number(
-    blancos.do1
-  );
-
-  const blancoDO2 = Number(
-    blancos.do2
-  );
-
-  const blancosCompletos =
-    blancos.do1 !== "" &&
-    blancos.do2 !== "" &&
-    Number.isFinite(blancoDO1) &&
-    Number.isFinite(blancoDO2);
-
-  const promedioBlancos =
-    blancosCompletos
-      ? (blancoDO1 + blancoDO2) / 2
-      : null;
-
-  const blancosValidos =
-    promedioBlancos !== null &&
-    promedioBlancos <= 0.1;
+  const handleControlChange = (campo, valor) => {
+    setControl((prev) => ({
+      ...prev,
+      [campo]: valor,
+    }));
+  };
 
   // ==========================================================
-  // ACTUALIZAR MUESTRA
+  // MUESTRAS
   // ==========================================================
 
-  const actualizarMuestra = (
-    id,
-    campo,
-    valor
-  ) => {
+  const handleMuestraChange = (id, campo, valor) => {
     setMuestras((prev) =>
       prev.map((muestra) =>
         muestra.id === id
@@ -247,254 +242,280 @@ function App() {
     );
   };
 
-  // ==========================================================
-  // AGREGAR MUESTRAS
-  // ==========================================================
-
-  const agregarMuestras = () => {
-    const cantidad = Math.max(
-      1,
-      parseInt(
-        cantidadMuestras,
-        10
-      ) || 1
-    );
-
-    const ultimoId =
+  const agregarMuestra = () => {
+    const nuevoId =
       muestras.length > 0
-        ? Math.max(
-            ...muestras.map(
-              (muestra) =>
-                muestra.id
-            )
-          )
-        : 0;
-
-    const nuevasMuestras =
-      Array.from(
-        {
-          length: cantidad,
-        },
-        (_, indice) => {
-          const nuevoId =
-            ultimoId +
-            indice +
-            1;
-
-          return {
-            id: nuevoId,
-            nombre: `M-${String(
-              nuevoId
-            ).padStart(3, "0")}`,
-            do1: "",
-            dilucion: 1,
-          };
-        }
-      );
+        ? Math.max(...muestras.map((m) => m.id)) + 1
+        : 1;
 
     setMuestras((prev) => [
       ...prev,
-      ...nuevasMuestras,
+      {
+        id: nuevoId,
+        nombre: `M${nuevoId}`,
+        codigo: "",
+        do405: "",
+        do450: "",
+        dilucion: 1,
+      },
     ]);
-
-    setCantidadMuestras(1);
   };
 
-  // ==========================================================
-  // ELIMINAR MUESTRA
-  // ==========================================================
+  const eliminarMuestra = (id) => {
+    if (muestras.length <= 1) return;
 
-  const eliminarMuestra = (
-    id
-  ) => {
     setMuestras((prev) =>
-      prev.filter(
-        (muestra) =>
-          muestra.id !== id
-      )
+      prev.filter((muestra) => muestra.id !== id)
     );
   };
 
   // ==========================================================
-// IMPORTAR EXCEL
-// ==========================================================
+  // PROMEDIO DE BLANCOS
+  // ==========================================================
 
-const importarExcel = (e) => {
-  const archivo = e.target.files?.[0];
+  const calcularPromedio = (valor1, valor2) => {
+    const a = Number(valor1);
+    const b = Number(valor2);
 
-  if (!archivo) {
-    return;
-  }
+    if (!Number.isFinite(a) || !Number.isFinite(b)) {
+      return null;
+    }
 
-  const lector = new FileReader();
+    return (a + b) / 2;
+  };
 
-  lector.onload = (evento) => {
+  const promedioBlanco405 = calcularPromedio(
+    blancos.do405_1,
+    blancos.do405_2
+  );
+
+  const promedioBlanco450 = calcularPromedio(
+    blancos.do450_1,
+    blancos.do450_2
+  );
+
+  // ==========================================================
+  // ABRIR IMPORTADOR
+  // ==========================================================
+
+  const abrirImportador = () => {
+    inputExcelRef.current?.click();
+  };
+
+  // ==========================================================
+  // IMPORTACIÓN EXCEL
+  // ==========================================================
+
+  const importarExcel = async (event) => {
+    const archivo = event.target.files?.[0];
+
+    if (!archivo) return;
+
+    setErrorCalculo("");
+
     try {
-      const datos = new Uint8Array(
-        evento.target.result
-      );
+      const buffer = await archivo.arrayBuffer();
 
-      const workbook = XLSX.read(datos, {
+      const workbook = XLSX.read(buffer, {
         type: "array",
       });
 
-      const nombreHoja =
-        workbook.SheetNames[0];
+      const nombreHoja = workbook.SheetNames[0];
 
-      const hoja =
-        workbook.Sheets[nombreHoja];
+      const hoja = workbook.Sheets[nombreHoja];
 
-      const filas = XLSX.utils.sheet_to_json(
-        hoja,
-        {
-          header: 1,
-          defval: "",
+      const filas = XLSX.utils.sheet_to_json(hoja, {
+        header: 1,
+        defval: "",
+      });
+
+      const nuevosCalibradores = [...calibradoresIniciales];
+
+      let nuevosBlancos = {
+        do405_1: "",
+        do405_2: "",
+        do450_1: "",
+        do450_2: "",
+      };
+
+      let nuevoControl = {
+        do405: "",
+        do450: "",
+        minimo: control.minimo,
+        maximo: control.maximo,
+      };
+
+      const nuevasMuestras = [];
+
+      // --------------------------------------------------------
+      // FORMATO EXCEL
+      //
+      // A -> identificación
+      // B -> código
+      // C -> DO 450 nm
+      // D -> DO 405 nm
+      //
+      // Por eso:
+      //
+      // fila[2] -> DO450
+      // fila[3] -> DO405
+      // --------------------------------------------------------
+
+      filas.forEach((fila) => {
+        if (!fila || fila.length === 0) {
+          return;
         }
-      );
 
-      const nuevasFilas = filas
-        .map((fila) => ({
-          tipo: String(
-            fila[0] ?? ""
-          )
-            .trim()
-            .toUpperCase(),
+        const identificacion = String(
+          fila[0] ?? ""
+        ).trim();
 
-          identificacion: String(
-            fila[1] ?? ""
-          ).trim(),
+        const codigo = String(
+          fila[1] ?? ""
+        ).trim();
 
-          do: fila[2],
-        }))
-        .filter(
-          (fila) =>
-            fila.tipo !== ""
-        );
+        // -----------------------------------------------
+        // COLUMNAS CORRECTAS
+        // -----------------------------------------------
 
-      // ------------------------------------------------------
-      // BLANCOS
-      // ------------------------------------------------------
+        const do450 = fila[2] ?? "";
 
-      const blanco1 =
-        nuevasFilas.find(
-          (fila) =>
-            fila.tipo === "A1"
-        );
+        const do405 = fila[3] ?? "";
 
-      const blanco2 =
-        nuevasFilas.find(
-          (fila) =>
-            fila.tipo === "A2"
-        );
+        if (!identificacion) {
+          return;
+        }
 
-      if (blanco1) {
-        actualizarBlanco(
-          "do1",
-          blanco1.do
-        );
-      }
+        const identificacionMayuscula =
+          identificacion.toUpperCase();
 
-      if (blanco2) {
-        actualizarBlanco(
-          "do2",
-          blanco2.do
-        );
-      }
+        // ==================================================
+        // BLANCO A1
+        // ==================================================
 
-      // ------------------------------------------------------
-      // CALIBRADORES
-      // ------------------------------------------------------
+        if (identificacionMayuscula === "A1") {
+          nuevosBlancos.do450_1 = do450;
+          nuevosBlancos.do405_1 = do405;
+          return;
+        }
 
-      setCalibradores((prev) =>
-        prev.map((calibrador) => {
-          const numero =
-            calibrador.id;
+        // ==================================================
+        // BLANCO A2
+        // ==================================================
 
-          const fila =
-            nuevasFilas.find(
-              (item) =>
-                item.tipo ===
-                `C${numero}`
-            );
+        if (identificacionMayuscula === "A2") {
+          nuevosBlancos.do450_2 = do450;
+          nuevosBlancos.do405_2 = do405;
+          return;
+        }
 
-          if (!fila) {
-            return calibrador;
+        // ==================================================
+        // CALIBRADORES
+        // ==================================================
+
+        const matchCalibrador =
+          identificacionMayuscula.match(/^C([0-6])$/);
+
+        if (matchCalibrador) {
+          const numeroCalibrador = Number(
+            matchCalibrador[1]
+          );
+
+          const indice = nuevosCalibradores.findIndex(
+            (calibrador) =>
+              calibrador.id === numeroCalibrador
+          );
+
+          if (indice !== -1) {
+            nuevosCalibradores[indice] = {
+              ...nuevosCalibradores[indice],
+
+              // C -> 450 nm
+              do450,
+
+              // D -> 405 nm
+              do405,
+            };
           }
 
-          return {
-            ...calibrador,
-            do1:
-              fila.do !== ""
-                ? String(fila.do)
-                : "",
+          return;
+        }
+
+        // ==================================================
+        // CONTROL
+        // ==================================================
+
+        if (
+          identificacionMayuscula === "CTL" ||
+          identificacionMayuscula === "CONTROL"
+        ) {
+          nuevoControl = {
+            ...nuevoControl,
+
+            // C -> 450 nm
+            do450,
+
+            // D -> 405 nm
+            do405,
           };
-        })
-      );
 
-      // ------------------------------------------------------
-      // CONTROL
-      // ------------------------------------------------------
+          return;
+        }
 
-      const filaControl =
-        nuevasFilas.find(
-          (fila) =>
-            fila.tipo === "CTL"
-        );
+        // ==================================================
+        // MUESTRAS
+        // ==================================================
 
-      if (filaControl) {
-        actualizarControl(
-          "do1",
-          filaControl.do
-        );
-      }
+        const matchMuestra =
+          identificacionMayuscula.match(/^M(\d+)$/);
 
-      // ------------------------------------------------------
-      // MUESTRAS
-      // ------------------------------------------------------
+        if (matchMuestra) {
+          const numeroMuestra = Number(
+            matchMuestra[1]
+          );
 
-      const filasMuestras =
-        nuevasFilas.filter(
-          (fila) =>
-            /^M\d+$/i.test(
-              fila.tipo
-            )
-        );
+          nuevasMuestras.push({
+            id: numeroMuestra,
+            nombre: identificacion,
+            codigo,
 
-      const nuevasMuestras =
-        filasMuestras.map(
-          (fila, indice) => ({
-            id:
-              Date.now() +
-              indice,
+            // D -> 405 nm
+            do405,
 
-            nombre:
-              fila.identificacion ||
-              fila.tipo,
-
-            do1:
-              fila.do !== ""
-                ? String(fila.do)
-                : "",
+            // C -> 450 nm
+            do450,
 
             dilucion: 1,
-          })
-        );
+          });
+        }
+      });
 
-      if (
-        nuevasMuestras.length > 0
-      ) {
-        setMuestras(
-          nuevasMuestras
-        );
+      // ------------------------------------------------------
+      // ACTUALIZAR ESTADOS
+      // ------------------------------------------------------
+
+      setCalibradores(nuevosCalibradores);
+
+      setBlancos(nuevosBlancos);
+
+      setControl(nuevoControl);
+
+      if (nuevasMuestras.length > 0) {
+        nuevasMuestras.sort((a, b) => a.id - b.id);
+
+        setMuestras(nuevasMuestras);
       }
 
       // ------------------------------------------------------
       // LIMPIAR RESULTADOS ANTERIORES
       // ------------------------------------------------------
 
-      setCurva(null);
       setResultados([]);
-      setErrorCalculo("");
+
+      setCurvas({
+        curva450: null,
+        curva405: null,
+      });
 
     } catch (error) {
       console.error(
@@ -503,94 +524,90 @@ const importarExcel = (e) => {
       );
 
       setErrorCalculo(
-        "No fue posible leer el archivo Excel."
+        "No se pudo importar el archivo Excel."
       );
-    } finally {
-      // Permite volver a seleccionar el mismo archivo.
-      e.target.value = "";
     }
-  };
 
-  lector.readAsArrayBuffer(
-    archivo
-  );
-};
-
-
-  // ==========================================================
-// RESTABLECER VALORES INICIALES
-// ==========================================================
-
-  const restablecerValores = () => {
-    setDatosEnsayo({
-      fecha: new Date().toISOString().slice(0, 10),
-      lote: "",
-      operador: "",
-    });
-
-    setCalibradores(
-      calibradoresIniciales.map((calibrador) => ({
-        ...calibrador,
-      }))
-    );
-
-    setControl({
-      do1: "",
-      minimo: "",
-      maximo: "",
-    });
-
-    setBlancos({
-      do1: 0,
-      do2: 0,
-    });
-
-    setMuestras(
-      muestrasIniciales.map((muestra) => ({
-        ...muestra,
-      }))
-    );
-
-    setCantidadMuestras(1);
-
-    setResultados([]);
-    setCurva(null);
-    setErrorCalculo("");
+    // Permite volver a seleccionar el mismo archivo
+    event.target.value = "";
   };
 
   // ==========================================================
-  // CALCULAR
+  // CÁLCULO
   // ==========================================================
 
   const calcular = () => {
-    try {
-      setErrorCalculo("");
+    setErrorCalculo("");
 
+    try {
       // ------------------------------------------------------
       // VALIDAR BLANCOS
       // ------------------------------------------------------
 
-      if (!blancosCompletos) {
-        throw new Error(
-          "Debe ingresar las DO de ambos blancos."
-        );
-      }
+      const blancosCalculados =
+        calcularBlancosRA1000(blancos);
 
-      if (!blancosValidos) {
+      if (!blancosCalculados.valido) {
+        const errores = [];
+
+        if (!blancosCalculados.valido405) {
+          errores.push(
+            blancosCalculados.error405
+          );
+        }
+
+        if (!blancosCalculados.valido450) {
+          errores.push(
+            blancosCalculados.error450
+          );
+        }
+
         throw new Error(
-          "El promedio de los blancos debe ser menor o igual a 0.100."
+          errores.join(" ")
         );
       }
 
       // ------------------------------------------------------
-      // CALCULAR CURVA
+      // CURVA 450
+      //
+      // CAL 0 a CAL 4
       // ------------------------------------------------------
 
-      const nuevaCurva =
-        calcularCurva(
-          calibradores,
-          promedioBlancos
+      const calibradores450 =
+        calibradores.filter(
+          (calibrador) =>
+            calibrador.id >= 0 &&
+            calibrador.id <= 4
         );
+
+      const curva450 = calcularCurva(
+        calibradores450,
+        blancosCalculados.blanco450,
+        450
+      );
+
+      // ------------------------------------------------------
+      // CURVA 405
+      //
+      // CAL 0 a CAL 6
+      // ------------------------------------------------------
+
+      const curva405 = calcularCurva(
+        calibradores,
+        blancosCalculados.blanco405,
+        405
+      );
+
+      // ------------------------------------------------------
+      // GUARDAR CURVAS
+      // ------------------------------------------------------
+
+      const nuevasCurvas = {
+        curva450,
+        curva405,
+      };
+
+      setCurvas(nuevasCurvas);
 
       // ------------------------------------------------------
       // CALCULAR MUESTRAS
@@ -599,25 +616,28 @@ const importarExcel = (e) => {
       const nuevosResultados =
         calcularMuestras(
           muestras,
-          nuevaCurva
+          nuevasCurvas
         );
 
-      setCurva(nuevaCurva);
+      setResultados(nuevosResultados);
 
-      setResultados(
-        nuevosResultados
-      );
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Error al calcular:",
+        error
+      );
+
+      setResultados([]);
+
+      setCurvas({
+        curva450: null,
+        curva405: null,
+      });
 
       setErrorCalculo(
         error.message ||
-          "No fue posible realizar el cálculo."
+          "Error al calcular los resultados."
       );
-
-      setCurva(null);
-
-      setResultados([]);
     }
   };
 
@@ -625,19 +645,15 @@ const importarExcel = (e) => {
   // EXPORTAR PDF
   // ==========================================================
 
-  const exportarPdf = () => {
-    if (!curva) {
-      return;
-    }
-
+  const exportarPDF = () => {
     exportarResultadosPdf({
       datosEnsayo,
       blancos,
-      promedioBlancos,
+      promedioBlancos: promedioBlanco450,
       calibradores,
       control,
       resultados,
-      curva,
+      curvas,
     });
   };
 
@@ -646,71 +662,38 @@ const importarExcel = (e) => {
   // ==========================================================
 
   return (
-    <div className="container-fluid py-3">
+    <div className="container-fluid py-4">
 
-      {/* ================================================== */}
-      {/* ENCABEZADO */}
-      {/* ================================================== */}
+      {/* ==================================================== */}
+      {/* ENCABEZADO                                           */}
+      {/* ==================================================== */}
 
-      <div className="d-flex align-items-center justify-content-between mb-3">
+      <div className="mb-4">
 
-  <div>
+        <h1 className="fw-bold mb-1">
+          AllergenA Basic Kit
+        </h1>
 
-    <h3 className="mb-0">
-      <i className="bi bi-droplet-half me-2"></i>
-      AllergenA Total IgE
-    </h3>
+        <div className="text-muted">
+          REF RA1000 — Determinación cuantitativa de IgE
+          específica
+        </div>
 
-    <small className="text-muted">
-      REF: RA1002
-    </small>
+      </div>
 
-  </div>
+      {/* ==================================================== */}
+      {/* IDENTIFICACIÓN DEL ENSAYO                             */}
+      {/* ==================================================== */}
 
-  <div>
-
-    <button
-      type="button"
-      className="btn btn-outline-primary"
-      onClick={() =>
-        inputExcelRef.current?.click()
-      }
-    >
-      <i className="bi bi-file-earmark-excel me-1"></i>
-      Importar
-    </button>
-
-    <input
-      ref={inputExcelRef}
-      type="file"
-      accept=".xlsx,.xls"
-      className="d-none"
-      onChange={importarExcel}
-    />
-
-  </div>
-
-</div>
-
-      {/* ================================================== */}
-      {/* DATOS DEL ENSAYO */}
-      {/* ================================================== */}
-
-      <div className="card shadow-sm mb-3">
+      <div className="card shadow-sm mb-4">
 
         <div className="card-header fw-semibold">
-
-          <i className="bi bi-clipboard-data me-2"></i>
-
-          Datos del ensayo
-
+          Identificación del ensayo
         </div>
 
         <div className="card-body">
 
-          <div className="row g-2">
-
-            {/* FECHA */}
+          <div className="row g-3">
 
             <div className="col-md-4">
 
@@ -721,11 +704,9 @@ const importarExcel = (e) => {
               <input
                 type="date"
                 className="form-control"
-                value={
-                  datosEnsayo.fecha
-                }
+                value={datosEnsayo.fecha}
                 onChange={(e) =>
-                  actualizarEnsayo(
+                  handleEnsayoChange(
                     "fecha",
                     e.target.value
                   )
@@ -734,32 +715,25 @@ const importarExcel = (e) => {
 
             </div>
 
-            {/* LOTE */}
-
             <div className="col-md-4">
 
               <label className="form-label">
-                Lote del kit
+                Lote
               </label>
 
               <input
                 type="text"
                 className="form-control"
-                value={
-                  datosEnsayo.lote
-                }
+                value={datosEnsayo.lote}
                 onChange={(e) =>
-                  actualizarEnsayo(
+                  handleEnsayoChange(
                     "lote",
                     e.target.value
                   )
                 }
-                placeholder="Lote"
               />
 
             </div>
-
-            {/* OPERADOR */}
 
             <div className="col-md-4">
 
@@ -770,16 +744,13 @@ const importarExcel = (e) => {
               <input
                 type="text"
                 className="form-control"
-                value={
-                  datosEnsayo.operador
-                }
+                value={datosEnsayo.operador}
                 onChange={(e) =>
-                  actualizarEnsayo(
+                  handleEnsayoChange(
                     "operador",
                     e.target.value
                   )
                 }
-                placeholder="Nombre"
               />
 
             </div>
@@ -787,465 +758,452 @@ const importarExcel = (e) => {
           </div>
 
         </div>
-
       </div>
 
-      {/* ================================================== */}
-      {/* MICROPLACA */}
-      {/* ================================================== */}
-
-      <Microplaca
-        calibradores={calibradores}
-        control={control}
-        muestras={muestras}
-      />
-
-      {/* ================================================== */}
-      {/* CALIBRADORES / CONTROL / BLANCOS */}
-      {/* ================================================== */}
-
-      <div className="row g-3 mb-4">
-
-        {/* ====================================================
-            COLUMNA IZQUIERDA — CALIBRADORES
-            ==================================================== */}
-
-        <div className="col-12 col-lg-8">
-
-          <div className="card shadow-sm h-100">
-
-            <div className="card-header">
-
-              <strong>
-
-                <i className="bi bi-bar-chart-line me-2"></i>
-
-                Calibradores
-
-              </strong>
-
-            </div>
-
-            <div className="card-body">
-
-              <div className="table-responsive">
-
-                <table className="table table-sm table-bordered align-middle mb-0">
-
-                  <thead>
-
-                    <tr>
-
-                      <th>
-                        Calibrador
-                      </th>
-
-                      <th
-                        style={{
-                          width: "150px",
-                        }}
-                      >
-                        Concentración (UI/mL)
-                      </th>
-
-                      <th
-                        style={{
-                          width: "150px",
-                        }}
-                      >
-                        DO
-                      </th>
-
-                    </tr>
-
-                  </thead>
-
-                  <tbody>
-
-                    {calibradores.map(
-                      (
-                        calibrador
-                      ) => (
-
-                        <tr
-                          key={
-                            calibrador.id
-                          }
-                        >
-
-                          <td>
-
-                            <strong>
-                              {
-                                calibrador.nombre
-                              }
-                            </strong>
-
-                          </td>
-
-                          <td className="text-center">
-
-                            {
-                              calibrador.concentracion
-                            }
-
-                          </td>
-
-                          <td>
-
-                            <input
-                              type="number"
-                              className="form-control form-control-sm"
-                              step="0.001"
-                              min="0"
-                              value={
-                                calibrador.do1
-                              }
-                              onChange={(e) =>
-                                actualizarCalibrador(
-                                  calibrador.id,
-                                  "do1",
-                                  e.target.value
-                                )
-                              }
-                              placeholder="DO"
-                            />
-
-                          </td>
-
-                        </tr>
-
-                      )
-                    )}
-
-                  </tbody>
-
-                </table>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* ====================================================
-            COLUMNA DERECHA
-            ==================================================== */}
-
-        <div className="col-12 col-lg-4">
-
-          <div className="d-flex flex-column gap-3 h-100">
-
-            {/* ==================================================
-                CONTROL
-                ================================================== */}
-
-            <div className="card shadow-sm">
-
-              <div className="card-header">
-
-                <strong>
-
-                  <i className="bi bi-check-circle me-2"></i>
-
-                  Control
-
-                </strong>
-
-              </div>
-
-              <div className="card-body">
-
-                <div className="mb-3">
-
-                  <label className="form-label">
-                    DO
-                  </label>
-
-                  <input
-                    type="number"
-                    className="form-control"
-                    step="0.001"
-                    min="0"
-                    value={
-                      control.do1
-                    }
-                    onChange={(e) =>
-                      actualizarControl(
-                        "do1",
-                        e.target.value
-                      )
-                    }
-                    placeholder="DO del control"
-                  />
-
-                </div>
-
-                <div className="row g-2">
-
-                  <div className="col-6">
-
-                    <label className="form-label">
-                      Mínimo
-                    </label>
-
-                    <input
-                      type="number"
-                      className="form-control"
-                      min="0"
-                      step="0.1"
-                      value={
-                        control.minimo
-                      }
-                      onChange={(e) =>
-                        actualizarControl(
-                          "minimo",
-                          e.target.value
-                        )
-                      }
-                    />
-
-                  </div>
-
-                  <div className="col-6">
-
-                    <label className="form-label">
-                      Máximo
-                    </label>
-
-                    <input
-                      type="number"
-                      className="form-control"
-                      min="0"
-                      step="0.1"
-                      value={
-                        control.maximo
-                      }
-                      onChange={(e) =>
-                        actualizarControl(
-                          "maximo",
-                          e.target.value
-                        )
-                      }
-                    />
-
-                  </div>
-
-                </div>
-
-              </div>
-
-            </div>
-
-            {/* ==================================================
-                BLANCOS
-                ================================================== */}
-
-            <div className="card shadow-sm flex-grow-1">
-
-              <div className="card-header">
-
-                <strong>
-
-                  <i className="bi bi-droplet me-2"></i>
-
-                  Blancos
-
-                </strong>
-
-              </div>
-
-              <div className="card-body">
-
-                <div className="row g-2">
-
-                  <div className="col-6">
-
-                    <label className="form-label">
-                      DO 1
-                    </label>
-
-                    <input
-                      type="number"
-                      className="form-control"
-                      step="0.001"
-                      min="0"
-                      value={
-                        blancos.do1
-                      }
-                      onChange={(e) =>
-                        actualizarBlanco(
-                          "do1",
-                          e.target.value
-                        )
-                      }
-                    />
-
-                  </div>
-
-                  <div className="col-6">
-
-                    <label className="form-label">
-                      DO 2
-                    </label>
-
-                    <input
-                      type="number"
-                      className="form-control"
-                      step="0.001"
-                      min="0"
-                      value={
-                        blancos.do2
-                      }
-                      onChange={(e) =>
-                        actualizarBlanco(
-                          "do2",
-                          e.target.value
-                        )
-                      }
-                    />
-
-                  </div>
-
-                </div>
-
-                {/* PROMEDIO */}
-
-                <div className="mt-3 p-2 rounded border bg-light">
-
-                  <div className="d-flex justify-content-between">
-
-                    <span>
-                      Promedio
-                    </span>
-
-                    <strong>
-
-                      {
-                        promedioBlancos !== null
-                          ? promedioBlancos.toFixed(
-                              3
-                            )
-                          : "—"
-                      }
-
-                    </strong>
-
-                  </div>
-
-                </div>
-
-                {/* ESTADO */}
-
-                <div className="mt-2">
-
-                  {!blancosCompletos ? (
-
-                    <span className="text-muted">
-                      Ingrese ambos blancos
-                    </span>
-
-                  ) : blancosValidos ? (
-
-                    <span className="text-success">
-
-                      <i className="bi bi-check-circle-fill me-1"></i>
-
-                      Blanco válido
-
-                    </span>
-
-                  ) : (
-
-                    <span className="text-danger">
-
-                      <i className="bi bi-exclamation-triangle-fill me-1"></i>
-
-                      Blanco fuera de límite
-
-                    </span>
-
-                  )}
-
-                </div>
-
-                <small className="text-muted d-block mt-2">
-                  Límite: ≤ 0,100
-                </small>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
-      {/* ================================================== */}
-      {/* MUESTRAS */}
-      {/* ================================================== */}
-
-      <div className="card shadow-sm mb-3">
+      {/* ==================================================== */}
+      {/* IMPORTAR EXCEL                                      */}
+      {/* ==================================================== */}
+
+      <div className="card shadow-sm mb-4">
 
         <div className="card-header d-flex justify-content-between align-items-center">
 
           <span className="fw-semibold">
-
-            <i className="bi bi-eyedropper me-2"></i>
-
-            Muestras
-
+            Importar resultados del lector
           </span>
 
-          <div className="d-flex align-items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={abrirImportador}
+          >
+            <i className="bi bi-upload me-2"></i>
+            Importar
+          </button>
 
-            <label className="small mb-0">
-              Cantidad
-            </label>
+          <input
+            ref={inputExcelRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={importarExcel}
+            style={{ display: "none" }}
+          />
 
-            <input
-              type="number"
-              min="1"
-              step="1"
-              className="form-control form-control-sm"
-              style={{
-                width: "75px",
-              }}
-              value={
-                cantidadMuestras
-              }
-              onChange={(e) =>
-                setCantidadMuestras(
-                  Math.max(
-                    1,
-                    parseInt(
-                      e.target.value,
-                      10
-                    ) || 1
+        </div>
+
+        <div className="card-body">
+
+          <div className="small text-muted">
+            <strong>Formato del archivo:</strong>{" "}
+            columna A = identificación, columna B = código,
+            columna C = DO 450 nm y columna D = DO 405 nm.
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* ==================================================== */}
+      {/* INFORMACIÓN RA1000                                  */}
+      {/* ==================================================== */}
+
+      <div className="alert alert-info mb-4">
+
+        <div className="fw-semibold mb-2">
+          Protocolo RA1000
+        </div>
+
+        <ul className="mb-0">
+
+          <li>
+            Curva estándar 1: CAL 0–CAL 4 a 450 nm.
+          </li>
+
+          <li>
+            Curva estándar 2: CAL 0–CAL 6 a 405 nm.
+          </li>
+
+          <li>
+            Si el DO450 de la muestra es menor que 2,3,
+            se utiliza la curva de 450 nm.
+          </li>
+
+          <li>
+            Si el DO450 de la muestra es mayor que 2,3,
+            se utiliza la curva de 405 nm.
+          </li>
+
+        </ul>
+
+      </div>
+
+      {/* ==================================================== */}
+      {/* CALIBRADORES                                         */}
+      {/* ==================================================== */}
+
+      <div className="card shadow-sm mb-4">
+
+        <div className="card-header fw-semibold">
+          Calibradores
+        </div>
+
+        <div className="card-body p-0">
+
+          <div className="table-responsive">
+
+            <table className="table table-bordered table-hover mb-0 align-middle">
+
+              <thead className="table-light">
+
+                <tr>
+
+                  <th>
+                    Calibrador
+                  </th>
+
+                  <th>
+                    Concentración (UI/mL)
+                  </th>
+
+                  <th>
+                    DO 450 nm
+                  </th>
+
+                  <th>
+                    DO 405 nm
+                  </th>
+
+                </tr>
+
+              </thead>
+
+              <tbody>
+
+                {calibradores.map(
+                  (calibrador) => (
+
+                    <tr key={calibrador.id}>
+
+                      <td className="fw-semibold">
+                        {calibrador.nombre}
+                      </td>
+
+                      <td>
+                        {calibrador.concentracion} UI/mL
+                      </td>
+
+                      <td>
+
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={calibrador.do450}
+                          onChange={(e) =>
+                            handleCalibradorChange(
+                              calibrador.id,
+                              "do450",
+                              e.target.value
+                            )
+                          }
+                        />
+
+                      </td>
+
+                      <td>
+
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={calibrador.do405}
+                          onChange={(e) =>
+                            handleCalibradorChange(
+                              calibrador.id,
+                              "do405",
+                              e.target.value
+                            )
+                          }
+                        />
+
+                      </td>
+
+                    </tr>
+
                   )
-                )
-              }
-            />
+                )}
 
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-primary"
-              onClick={
-                agregarMuestras
-              }
-            >
+              </tbody>
 
-              <i className="bi bi-plus-lg me-1"></i>
-
-              Agregar muestras
-
-            </button>
+            </table>
 
           </div>
+
+        </div>
+      </div>
+
+      {/* ==================================================== */}
+      {/* CONTROL Y BLANCOS                                    */}
+      {/* ==================================================== */}
+
+      <div className="row g-4 mb-4">
+
+        {/* CONTROL */}
+
+        <div className="col-lg-6">
+
+          <div className="card shadow-sm h-100">
+
+            <div className="card-header fw-semibold">
+              Control
+            </div>
+
+            <div className="card-body">
+
+              <div className="row g-3">
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    DO 450 nm
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={control.do450}
+                    onChange={(e) =>
+                      handleControlChange(
+                        "do450",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    DO 405 nm
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={control.do405}
+                    onChange={(e) =>
+                      handleControlChange(
+                        "do405",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    Mínimo
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={control.minimo}
+                    onChange={(e) =>
+                      handleControlChange(
+                        "minimo",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    Máximo
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={control.maximo}
+                    onChange={(e) =>
+                      handleControlChange(
+                        "maximo",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        {/* BLANCOS */}
+
+        <div className="col-lg-6">
+
+          <div className="card shadow-sm h-100">
+
+            <div className="card-header fw-semibold">
+              Blancos
+            </div>
+
+            <div className="card-body">
+
+              <div className="row g-3">
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    Blanco 1 — 450 nm
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={blancos.do450_1}
+                    onChange={(e) =>
+                      handleBlancoChange(
+                        "do450_1",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    Blanco 2 — 450 nm
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={blancos.do450_2}
+                    onChange={(e) =>
+                      handleBlancoChange(
+                        "do450_2",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    Blanco 1 — 405 nm
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={blancos.do405_1}
+                    onChange={(e) =>
+                      handleBlancoChange(
+                        "do405_1",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+                <div className="col-6">
+
+                  <label className="form-label">
+                    Blanco 2 — 405 nm
+                  </label>
+
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={blancos.do405_2}
+                    onChange={(e) =>
+                      handleBlancoChange(
+                        "do405_2",
+                        e.target.value
+                      )
+                    }
+                  />
+
+                </div>
+
+              </div>
+
+              <hr />
+
+              <div className="row">
+
+                <div className="col-6">
+
+                  <div className="small text-muted">
+                    Promedio 450 nm
+                  </div>
+
+                  <div className="fw-semibold">
+                    {promedioBlanco450 !== null
+                      ? promedioBlanco450.toFixed(3)
+                      : "—"}
+                  </div>
+
+                </div>
+
+                <div className="col-6">
+
+                  <div className="small text-muted">
+                    Promedio 405 nm
+                  </div>
+
+                  <div className="fw-semibold">
+                    {promedioBlanco405 !== null
+                      ? promedioBlanco405.toFixed(3)
+                      : "—"}
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* ==================================================== */}
+      {/* MUESTRAS                                             */}
+      {/* ==================================================== */}
+
+      <div className="card shadow-sm mb-4">
+
+        <div className="card-header d-flex justify-content-between align-items-center">
+
+          <span className="fw-semibold">
+            Muestras
+          </span>
+
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            onClick={agregarMuestra}
+          >
+            <i className="bi bi-plus-lg me-1"></i>
+            Agregar muestra
+          </button>
 
         </div>
 
@@ -1253,18 +1211,28 @@ const importarExcel = (e) => {
 
           <div className="table-responsive">
 
-            <table className="table table-sm table-hover mb-0 align-middle">
+            <table className="table table-bordered table-hover mb-0 align-middle">
 
               <thead className="table-light">
 
                 <tr>
 
+                  <th>#</th>
+
                   <th>
-                    Muestra
+                    Identificación
                   </th>
 
                   <th>
-                    DO
+                    Código
+                  </th>
+
+                  <th>
+                    DO 450 nm
+                  </th>
+
+                  <th>
+                    DO 405 nm
                   </th>
 
                   <th>
@@ -1280,24 +1248,22 @@ const importarExcel = (e) => {
               <tbody>
 
                 {muestras.map(
-                  (muestra) => (
+                  (muestra, indice) => (
 
-                    <tr
-                      key={
-                        muestra.id
-                      }
-                    >
+                    <tr key={muestra.id}>
+
+                      <td>
+                        {indice + 1}
+                      </td>
 
                       <td>
 
                         <input
                           type="text"
-                          className="form-control form-control-sm"
-                          value={
-                            muestra.nombre
-                          }
+                          className="form-control"
+                          value={muestra.nombre}
                           onChange={(e) =>
-                            actualizarMuestra(
+                            handleMuestraChange(
                               muestra.id,
                               "nombre",
                               e.target.value
@@ -1310,47 +1276,64 @@ const importarExcel = (e) => {
                       <td>
 
                         <input
-                          type="number"
-                          step="any"
-                          className="form-control form-control-sm"
-                          min="0"
-                          value={
-                            muestra.do1
-                          }
-                          onChange={(e) => {
-                            const valor = e.target.value;
-                            if (
-                                valor !== "" &&
-                                Number(valor) < 0
-                              ) {
-                                return;
-                              }
-                            actualizarMuestra(
+                          type="text"
+                          className="form-control"
+                          value={muestra.codigo}
+                          onChange={(e) =>
+                            handleMuestraChange(
                               muestra.id,
-                              "do1",
+                              "codigo",
                               e.target.value
-                            );
-                          }}
+                            )
+                          }
                         />
 
                       </td>
 
-                      <td
-                        style={{
-                          width: "120px",
-                        }}
-                      >
+                      <td>
+
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={muestra.do450}
+                          onChange={(e) =>
+                            handleMuestraChange(
+                              muestra.id,
+                              "do450",
+                              e.target.value
+                            )
+                          }
+                        />
+
+                      </td>
+
+                      <td>
+
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={muestra.do405}
+                          onChange={(e) =>
+                            handleMuestraChange(
+                              muestra.id,
+                              "do405",
+                              e.target.value
+                            )
+                          }
+                        />
+
+                      </td>
+
+                      <td style={{ minWidth: "110px" }}>
 
                         <input
                           type="number"
                           min="1"
                           step="1"
-                          className="form-control form-control-sm"
-                          value={
-                            muestra.dilucion
-                          }
+                          className="form-control"
+                          value={muestra.dilucion}
                           onChange={(e) =>
-                            actualizarMuestra(
+                            handleMuestraChange(
                               muestra.id,
                               "dilucion",
                               e.target.value
@@ -1364,21 +1347,17 @@ const importarExcel = (e) => {
 
                         <button
                           type="button"
-                          className="btn btn-sm btn-outline-danger"
+                          className="btn btn-outline-danger btn-sm"
+                          disabled={
+                            muestras.length <= 1
+                          }
                           onClick={() =>
                             eliminarMuestra(
                               muestra.id
                             )
                           }
-                          disabled={
-                            muestras.length ===
-                            1
-                          }
-                          title="Eliminar muestra"
                         >
-
                           <i className="bi bi-trash"></i>
-
                         </button>
 
                       </td>
@@ -1395,79 +1374,108 @@ const importarExcel = (e) => {
           </div>
 
         </div>
+      </div>
+
+      {/* ==================================================== */}
+      {/* MICROPLACA                                           */}
+      {/* ==================================================== */}
+
+      <div className="mb-4">
+
+        <Microplaca
+          calibradores={calibradores}
+          blancos={blancos}
+          control={control}
+          muestras={muestras}
+        />
 
       </div>
 
-      {/* ================================================== */}
-      {/* CALCULAR */}
-      {/* ================================================== */}
+      {/* ==================================================== */}
+      {/* ERROR                                                */}
+      {/* ==================================================== */}
 
-      <div className="d-flex justify-content-end gap-2 mb-3">
+      {errorCalculo && (
+        <div className="alert alert-danger">
+
+          <i className="bi bi-exclamation-triangle me-2"></i>
+
+          {errorCalculo}
+
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* BOTÓN CALCULAR                                       */}
+      {/* ==================================================== */}
+
+      <div className="d-flex gap-2 mb-4">
 
         <button
           type="button"
-          className="btn btn-outline-secondary btn-lg px-4"
-          onClick={restablecerValores}
-        >
-          <i className="bi bi-arrow-counterclockwise me-2"></i>
-          Restablecer valores
-        </button>
-
-        <button
-          type="button"
-          className="btn btn-primary btn-lg px-4"
+          className="btn btn-primary"
           onClick={calcular}
         >
           <i className="bi bi-calculator me-2"></i>
           Calcular resultados
         </button>
 
+        {resultados.length > 0 && (
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={exportarPDF}
+          >
+            <i className="bi bi-file-earmark-pdf me-2"></i>
+            Exportar PDF
+          </button>
+
+        )}
+
       </div>
 
-      {/* ================================================== */}
-      {/* ERROR */}
-      {/* ================================================== */}
+      {/* ==================================================== */}
+      {/* CURVAS DE CALIBRACIÓN                                */}
+      {/* ==================================================== */}
 
-      {errorCalculo && (
+      {(curvas.curva450 || curvas.curva405) && (
 
-        <div className="alert alert-danger">
+        <div className="mb-4">
 
-          <i className="bi bi-exclamation-triangle-fill me-2"></i>
+          <h4 className="fw-semibold mb-3">
+            Curvas de calibración
+          </h4>
 
-          {errorCalculo}
+          <CurvaCalibracion
+            curvas={curvas}
+          />
 
         </div>
 
       )}
 
-      {/* ================================================== */}
-      {/* RESULTADOS */}
-      {/* ================================================== */}
+      {/* ==================================================== */}
+      {/* RESULTADOS                                           */}
+      {/* ==================================================== */}
 
-      {curva && (
+      {resultados.length > 0 && (
 
-        <div className="card shadow-sm mb-3">
+        <div className="card shadow-sm mb-4">
 
-          <div className="card-header fw-semibold d-flex justify-content-between align-items-center">
+          <div className="card-header d-flex justify-content-between align-items-center">
 
-            <span>
-
-              <i className="bi bi-check-circle me-2"></i>
-
-              Resultados
-
+            <span className="fw-semibold">
+              Resultados de las muestras
             </span>
 
             <button
               type="button"
               className="btn btn-sm btn-outline-secondary"
-              onClick={exportarPdf}
+              onClick={exportarPDF}
             >
-
               <i className="bi bi-file-earmark-pdf me-1"></i>
-
               Exportar PDF
-
             </button>
 
           </div>
@@ -1476,7 +1484,7 @@ const importarExcel = (e) => {
 
             <div className="table-responsive">
 
-              <table className="table table-sm table-hover mb-0 align-middle">
+              <table className="table table-bordered table-hover mb-0 align-middle">
 
                 <thead className="table-light">
 
@@ -1487,19 +1495,23 @@ const importarExcel = (e) => {
                     </th>
 
                     <th>
-                      DO
+                      DO 450
                     </th>
 
                     <th>
-                      Dilución
+                      DO 405
                     </th>
 
                     <th>
-                      IgE (UI/mL)
+                      Curva
                     </th>
 
                     <th>
-                      Estado
+                      Concentración
+                    </th>
+
+                    <th>
+                      Nivel de IgE Específica
                     </th>
 
                   </tr>
@@ -1509,83 +1521,63 @@ const importarExcel = (e) => {
                 <tbody>
 
                   {resultados.map(
-                    (resultado) => (
+                    (resultado, indice) => (
 
                       <tr
                         key={
-                          resultado.id
+                          resultado.id ||
+                          resultado.nombre ||
+                          indice
                         }
                       >
 
-                        <td className="fw-semibold">
-
-                          {
-                            resultado.nombre
-                          }
-
-                        </td>
-
                         <td>
 
-                          {
-                            resultado.doCorregida !==
-                            null
-                              ? resultado.doCorregida.toFixed(
-                                  4
-                                )
-                              : "—"
-                          }
+                          <div className="fw-semibold">
+                            {resultado.nombre}
+                          </div>
 
-                        </td>
-
-                        <td>
-
-                          {
-                            resultado.dilucion
-                          }
-
-                        </td>
-
-                        <td className="fw-semibold">
-
-                          {
-                            resultado.concentracion !==
-                            null
-                              ? resultado.concentracion.toFixed(
-                                  2
-                                )
-                              : "—"
-                          }
-
-                        </td>
-
-                        <td>
-
-                          {resultado.estado ===
-                            "Válido" && (
-
-                            <span className="badge text-bg-success">
-                              ✓ Válido
-                            </span>
-
+                          {resultado.codigo && (
+                            <div className="small text-muted">
+                              {resultado.codigo}
+                            </div>
                           )}
 
-                          {resultado.estado ===
-                            "Fuera de rango" && (
+                        </td>
 
-                            <span className="badge text-bg-warning">
-                              Fuera de rango
-                            </span>
+                        <td>
+                          {resultado.do450 !== undefined &&
+                          resultado.do450 !== null
+                            ? resultado.do450
+                            : "—"}
+                        </td>
 
-                          )}
+                        <td>
+                          {resultado.do405 !== undefined &&
+                          resultado.do405 !== null
+                            ? resultado.do405
+                            : "—"}
+                        </td>
 
-                          {resultado.estado ===
-                            "Sin datos" && (
+                        <td>
+                          {resultado.curva || "—"}
+                        </td>
 
-                            <span className="badge text-bg-secondary">
-                              Sin datos
-                            </span>
+                        <td>
 
+                          {resultado.estado === "Válido" &&
+                          resultado.concentracion !== null
+                            ? `${resultado.concentracion.toFixed(2)} UI/mL`
+                            : resultado.estado === "Fuera de rango"
+                              ? "Fuera de rango"
+                              : "—"}
+
+                        </td>
+
+                        <td>
+
+                          {obtenerNivelIgE(
+                            resultado.concentracion
                           )}
 
                         </td>
@@ -1607,36 +1599,6 @@ const importarExcel = (e) => {
 
       )}
 
-      {/* ================================================== */}
-      {/* CURVA */}
-      {/* ================================================== */}
-
-      {curva && (
-
-        <div className="card shadow-sm mb-4">
-
-          <div className="card-header fw-semibold">
-
-            <i className="bi bi-graph-up me-2"></i>
-
-            Curva de calibración
-
-          </div>
-
-          <div className="card-body">
-
-            <CurvaCalibracion
-              curva={curva}
-            />
-
-          </div>
-
-        </div>
-
-      )}
-
     </div>
   );
 }
-
-export default App;
